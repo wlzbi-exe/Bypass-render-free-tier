@@ -16,7 +16,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
-TOKEN = "YOUR BOT TOKEN"
+TOKEN = "8653420763:AAEoJiIpjj9_Ow3B1_cHbBZL_LxxSDUYKXc"
 PING_INTERVAL = 10
 DATA_FILE = "urls.json"
 CREDIT = "— @rejerks | WLZBI"
