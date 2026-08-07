@@ -6,9 +6,9 @@ import logging
 import threading
 from datetime import datetime
 from flask import Flask, jsonify
-from aiohttp import ClientSession, ClientTimeout
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, ConversationHandler
+from aiohttp import ClientSession, ClientTimeout, TCPConnector
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler, ContextTypes
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -33,7 +33,8 @@ def home():
         "bot": "WLZBI Render Free Tier Bypass Bot",
         "status": "running",
         "credit": CREDIT,
-        "ping_interval": f"{PING_INTERVAL} seconds"
+        "ping_interval": f"{PING_INTERVAL} seconds",
+        "version": "latest"
     })
 
 def load_urls(user_id=None):
@@ -58,7 +59,7 @@ def save_urls(user_id, urls):
     
     try:
         with open(DATA_FILE, "w") as f:
-            json.dump(all_data, f)
+            json.dump(all_data, f, indent=2)
     except Exception as e:
         logger.error(f"Failed to save URLs: {e}")
 
@@ -70,90 +71,55 @@ def get_all_urls():
         return {}
 
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.71 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.54 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.60 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.41 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.61 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.5060.53 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.79 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.5195.52 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.5249.61 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.5304.87 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.71 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.5414.74 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.5481.77 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.2 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.3 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (X11; Linux i686; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.71 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.54 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.60 Safari/537.36",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
 ]
 
-async def ping_url(url):
+async def ping_url(session, url):
     try:
         params = {"_t": random.randint(100000, 999999)} if random.choice([True, False]) else {}
         headers = {"User-Agent": random.choice(USER_AGENTS)}
-        timeout = ClientTimeout(total=10)
-        async with ClientSession(timeout=timeout) as session:
-            async with session.get(url, params=params, headers=headers) as resp:
-                logger.info(f"Pinged {url} -> {resp.status}")
-                return url, resp.status
+        async with session.get(url, params=params, headers=headers, timeout=10) as resp:
+            logger.info(f"Pinged {url} -> {resp.status}")
+            return url, resp.status
     except Exception as e:
         logger.error(f"Failed to ping {url}: {e}")
         return url, None
 
-def ping_all_sync():
+async def ping_all():
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         all_urls = get_all_urls()
         if not all_urls:
-            return
+            return []
         
-        all_tasks = []
-        for user_id, urls in all_urls.items():
-            for url in urls:
-                all_tasks.append(ping_url(url))
-        
-        if all_tasks:
-            loop.run_until_complete(asyncio.gather(*all_tasks))
-        loop.close()
+        connector = TCPConnector(limit=100, limit_per_host=20)
+        async with ClientSession(connector=connector) as session:
+            tasks = []
+            for user_id, urls in all_urls.items():
+                for url in urls:
+                    tasks.append(ping_url(session, url))
+            
+            if tasks:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                return results
+        return []
     except Exception as e:
         logger.error(f"Ping all error: {e}")
-
-def scheduler_loop():
-    while True:
-        try:
-            import time
-            time.sleep(PING_INTERVAL)
-            ping_all_sync()
-        except Exception as e:
-            logger.error(f"Scheduler error: {e}")
-            import time
-            time.sleep(5)
+        return []
 
 def main_menu_keyboard():
     keyboard = [
@@ -186,11 +152,11 @@ def clear_confirmation_keyboard():
 
 WAITING_FOR_URL = 1
 
-def start(update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id
         context.user_data['user_id'] = user_id
-        update.message.reply_text(
+        await update.message.reply_text(
             f"🤖 WLZBI Render Free Tier Bypass Bot\n\n"
             f"Keep your Render free‑tier services alive by automatically pinging your URLs every {PING_INTERVAL} seconds.\n"
             f"Use the buttons below to manage your list.\n\n"
@@ -200,15 +166,15 @@ def start(update, context):
     except Exception as e:
         logger.error(f"Start error: {e}")
 
-def menu_callback(update, context):
+async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query
-        query.answer()
+        await query.answer()
         data = query.data
         user_id = update.effective_user.id
 
         if data == "menu":
-            query.edit_message_text(
+            await query.edit_message_text(
                 f"🤖 WLZBI Render Free Tier Bypass Bot\n\n"
                 f"Keep your Render free‑tier services alive by automatically pinging your URLs every {PING_INTERVAL} seconds.\n"
                 f"Use the buttons below to manage your list.\n\n"
@@ -218,7 +184,7 @@ def menu_callback(update, context):
             return
 
         elif data == "add":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "📝 Please send me the URL you want to add.\n"
                 "You can include http:// or https:// – I'll add it if missing.\n\n"
                 "Type /cancel to abort.",
@@ -228,13 +194,13 @@ def menu_callback(update, context):
         elif data == "remove":
             urls = load_urls(user_id)
             if not urls:
-                query.edit_message_text(
+                await query.edit_message_text(
                     "📭 No URLs stored.\n\n"
                     "Press Back to return.",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
                 )
                 return
-            query.edit_message_text(
+            await query.edit_message_text(
                 "🗑 Choose a URL to remove:",
                 reply_markup=build_remove_keyboard(urls),
             )
@@ -259,14 +225,14 @@ def menu_callback(update, context):
                 else:
                     text = "📋 Stored URLs:\n\n" + "\n".join(f"{i}. {url}" for i, url in enumerate(urls))
             
-            query.edit_message_text(
+            await query.edit_message_text(
                 text,
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
             )
             return
 
         elif data == "clear":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "⚠️ Are you sure you want to delete ALL your URLs?\n"
                 "This action cannot be undone.",
                 reply_markup=clear_confirmation_keyboard(),
@@ -275,10 +241,10 @@ def menu_callback(update, context):
     except Exception as e:
         logger.error(f"Menu callback error: {e}")
 
-def remove_callback(update, context):
+async def remove_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query
-        query.answer()
+        await query.answer()
         data = query.data
         user_id = update.effective_user.id
         
@@ -288,40 +254,40 @@ def remove_callback(update, context):
             if 0 <= idx < len(urls):
                 removed = urls.pop(idx)
                 save_urls(user_id, urls)
-                query.edit_message_text(
+                await query.edit_message_text(
                     f"✅ Removed: {removed}",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
                 )
             else:
-                query.edit_message_text(
+                await query.edit_message_text(
                     "❌ Index out of range.",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
                 )
     except Exception as e:
         logger.error(f"Remove callback error: {e}")
 
-def clear_callback(update, context):
+async def clear_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query
-        query.answer()
+        await query.answer()
         data = query.data
         user_id = update.effective_user.id
         
         if data == "clear_yes":
             save_urls(user_id, [])
-            query.edit_message_text(
+            await query.edit_message_text(
                 "🗑 All your URLs have been cleared.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
             )
         elif data == "clear_no":
-            query.edit_message_text(
+            await query.edit_message_text(
                 "Action cancelled.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
             )
     except Exception as e:
         logger.error(f"Clear callback error: {e}")
 
-def add_url_message(update, context):
+async def add_url_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id
         url = update.message.text.strip()
@@ -330,14 +296,14 @@ def add_url_message(update, context):
         
         urls = load_urls(user_id)
         if url in urls:
-            update.message.reply_text(
+            await update.message.reply_text(
                 "⚠️ URL already exists.\n\n"
                 "Press /start to return to the menu."
             )
         else:
             urls.append(url)
             save_urls(user_id, urls)
-            update.message.reply_text(
+            await update.message.reply_text(
                 f"✅ Added: {url}\n\n"
                 "Press /start to return to the menu.",
             )
@@ -346,9 +312,9 @@ def add_url_message(update, context):
         logger.error(f"Add URL error: {e}")
         return ConversationHandler.END
 
-def cancel(update, context):
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ Operation cancelled.\n\n"
             "Press /start to return to the menu."
         )
@@ -357,17 +323,61 @@ def cancel(update, context):
         logger.error(f"Cancel error: {e}")
         return ConversationHandler.END
 
-def fallback(update, context):
+async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        update.message.reply_text(
+        await update.message.reply_text(
             "❓ I don't understand that.\n"
             "Please use the buttons or type /start."
         )
     except Exception as e:
         logger.error(f"Fallback error: {e}")
 
-def error_handler(update, context):
-    logger.error(f"Update {update} caused error {context.error}")
+async def scheduler_loop():
+    while True:
+        try:
+            await asyncio.sleep(PING_INTERVAL)
+            await ping_all()
+        except Exception as e:
+            logger.error(f"Scheduler error: {e}")
+            await asyncio.sleep(5)
+
+async def bot_main():
+    try:
+        application = Application.builder().token(TOKEN).build()
+
+        conv_handler = ConversationHandler(
+            entry_points=[CallbackQueryHandler(menu_callback, pattern="^add$")],
+            states={
+                WAITING_FOR_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_url_message)],
+            },
+            fallbacks=[CommandHandler("cancel", cancel)],
+        )
+        application.add_handler(conv_handler)
+
+        application.add_handler(CallbackQueryHandler(menu_callback, pattern="^(menu|list|clear)$"))
+        application.add_handler(CallbackQueryHandler(menu_callback, pattern="^remove$"))
+        application.add_handler(CallbackQueryHandler(remove_callback, pattern="^remove_"))
+        application.add_handler(CallbackQueryHandler(clear_callback, pattern="^clear_(yes|no)$"))
+
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
+
+        asyncio.create_task(scheduler_loop())
+        
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+        
+        try:
+            await asyncio.Event().wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            await application.updater.stop()
+            await application.stop()
+            await application.shutdown()
+    except Exception as e:
+        logger.error(f"Bot main error: {e}")
 
 def run_flask():
     try:
@@ -381,32 +391,11 @@ def main():
         flask_thread = threading.Thread(target=run_flask, daemon=True)
         flask_thread.start()
         
-        scheduler_thread = threading.Thread(target=scheduler_loop, daemon=True)
-        scheduler_thread.start()
-        
-        updater = Updater(TOKEN, use_context=True)
-        dp = updater.dispatcher
-
-        conv_handler = ConversationHandler(
-            entry_points=[CallbackQueryHandler(menu_callback, pattern="^add$")],
-            states={
-                WAITING_FOR_URL: [MessageHandler(Filters.text & ~Filters.command, add_url_message)],
-            },
-            fallbacks=[CommandHandler("cancel", cancel)],
-        )
-        dp.add_handler(conv_handler)
-
-        dp.add_handler(CallbackQueryHandler(menu_callback, pattern="^(menu|list|clear)$"))
-        dp.add_handler(CallbackQueryHandler(menu_callback, pattern="^remove$"))
-        dp.add_handler(CallbackQueryHandler(remove_callback, pattern="^remove_"))
-        dp.add_handler(CallbackQueryHandler(clear_callback, pattern="^clear_(yes|no)$"))
-
-        dp.add_handler(CommandHandler("start", start))
-        dp.add_handler(MessageHandler(Filters.text & ~Filters.command, fallback))
-        dp.add_error_handler(error_handler)
-
-        updater.start_polling()
-        updater.idle()
+        try:
+            asyncio.run(bot_main())
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(bot_main())
     except Exception as e:
         logger.error(f"Main error: {e}")
 
