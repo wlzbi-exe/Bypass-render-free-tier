@@ -5,9 +5,10 @@ import random
 import logging
 import threading
 from datetime import datetime
+from flask import Flask, jsonify
 from aiohttp import ClientSession, ClientTimeout
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, ConversationHandler
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler, ContextTypes
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -23,6 +24,17 @@ ADMIN_ID = 7282835498
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+def home():
+    return jsonify({
+        "bot": "WLZBI Render Free Tier Bypass Bot",
+        "status": "running",
+        "credit": CREDIT,
+        "ping_interval": f"{PING_INTERVAL} seconds"
+    })
 
 def load_urls(user_id=None):
     try:
@@ -111,10 +123,10 @@ USER_AGENTS = [
 ]
 
 async def ping_url(url):
-    params = {"_t": random.randint(100000, 999999)} if random.choice([True, False]) else {}
-    headers = {"User-Agent": random.choice(USER_AGENTS)}
-    timeout = ClientTimeout(total=10)
     try:
+        params = {"_t": random.randint(100000, 999999)} if random.choice([True, False]) else {}
+        headers = {"User-Agent": random.choice(USER_AGENTS)}
+        timeout = ClientTimeout(total=10)
         async with ClientSession(timeout=timeout) as session:
             async with session.get(url, params=params, headers=headers) as resp:
                 logger.info(f"Pinged {url} -> {resp.status}")
@@ -124,19 +136,23 @@ async def ping_url(url):
         return url, None
 
 async def ping_all():
-    all_urls = get_all_urls()
-    if not all_urls:
+    try:
+        all_urls = get_all_urls()
+        if not all_urls:
+            return []
+        
+        all_tasks = []
+        for user_id, urls in all_urls.items():
+            for url in urls:
+                all_tasks.append(ping_url(url))
+        
+        if all_tasks:
+            results = await asyncio.gather(*all_tasks)
+            return results
         return []
-    
-    all_tasks = []
-    for user_id, urls in all_urls.items():
-        for url in urls:
-            all_tasks.append(ping_url(url))
-    
-    if all_tasks:
-        results = await asyncio.gather(*all_tasks)
-        return results
-    return []
+    except Exception as e:
+        logger.error(f"Ping all error: {e}")
+        return []
 
 def main_menu_keyboard():
     keyboard = [
@@ -169,199 +185,253 @@ def clear_confirmation_keyboard():
 
 WAITING_FOR_URL = 1
 
-def start(update, context):
-    user_id = update.effective_user.id
-    context.user_data['user_id'] = user_id
-    update.message.reply_text(
-        f"🤖 URL Pinger Bot\n\n"
-        f"Keep your Render free‑tier services alive by automatically pinging your URLs every {PING_INTERVAL} seconds.\n"
-        f"Use the buttons below to manage your list.\n\n"
-        f"{CREDIT}",
-        reply_markup=main_menu_keyboard(),
-    )
-
-def menu_callback(update, context):
-    query = update.callback_query
-    query.answer()
-    data = query.data
-    user_id = update.effective_user.id
-
-    if data == "menu":
-        query.edit_message_text(
-            f"🤖 URL Pinger Bot\n\n"
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        user_id = update.effective_user.id
+        context.user_data['user_id'] = user_id
+        await update.message.reply_text(
+            f"🤖 WLZBI Render Free Tier Bypass Bot\n\n"
             f"Keep your Render free‑tier services alive by automatically pinging your URLs every {PING_INTERVAL} seconds.\n"
             f"Use the buttons below to manage your list.\n\n"
             f"{CREDIT}",
             reply_markup=main_menu_keyboard(),
         )
-        return
+    except Exception as e:
+        logger.error(f"Start error: {e}")
 
-    elif data == "add":
-        query.edit_message_text(
-            "📝 Please send me the URL you want to add.\n"
-            "You can include http:// or https:// – I'll add it if missing.\n\n"
-            "Type /cancel to abort.",
-        )
-        return WAITING_FOR_URL
+async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        query = update.callback_query
+        await query.answer()
+        data = query.data
+        user_id = update.effective_user.id
 
-    elif data == "remove":
-        urls = load_urls(user_id)
-        if not urls:
-            query.edit_message_text(
-                "📭 No URLs stored.\n\n"
-                "Press Back to return.",
+        if data == "menu":
+            await query.edit_message_text(
+                f"🤖 WLZBI Render Free Tier Bypass Bot\n\n"
+                f"Keep your Render free‑tier services alive by automatically pinging your URLs every {PING_INTERVAL} seconds.\n"
+                f"Use the buttons below to manage your list.\n\n"
+                f"{CREDIT}",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+
+        elif data == "add":
+            await query.edit_message_text(
+                "📝 Please send me the URL you want to add.\n"
+                "You can include http:// or https:// – I'll add it if missing.\n\n"
+                "Type /cancel to abort.",
+            )
+            return WAITING_FOR_URL
+
+        elif data == "remove":
+            urls = load_urls(user_id)
+            if not urls:
+                await query.edit_message_text(
+                    "📭 No URLs stored.\n\n"
+                    "Press Back to return.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
+                )
+                return
+            await query.edit_message_text(
+                "🗑 Choose a URL to remove:",
+                reply_markup=build_remove_keyboard(urls),
+            )
+            return
+
+        elif data == "list":
+            if user_id == ADMIN_ID:
+                all_urls = get_all_urls()
+                if not all_urls:
+                    text = "📭 No URLs stored by any user."
+                else:
+                    text = "📋 All Users URLs:\n\n"
+                    for uid, urls in all_urls.items():
+                        text += f"User {uid}:\n"
+                        for i, url in enumerate(urls):
+                            text += f"  {i}. {url}\n"
+                        text += "\n"
+            else:
+                urls = load_urls(user_id)
+                if not urls:
+                    text = "📭 No URLs stored."
+                else:
+                    text = "📋 Stored URLs:\n\n" + "\n".join(f"{i}. {url}" for i, url in enumerate(urls))
+            
+            await query.edit_message_text(
+                text,
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
             )
             return
-        query.edit_message_text(
-            "🗑 Choose a URL to remove:",
-            reply_markup=build_remove_keyboard(urls),
-        )
-        return
 
-    elif data == "list":
-        if user_id == ADMIN_ID:
-            all_urls = get_all_urls()
-            if not all_urls:
-                text = "📭 No URLs stored by any user."
-            else:
-                text = "📋 All Users URLs:\n\n"
-                for uid, urls in all_urls.items():
-                    text += f"User {uid}:\n"
-                    for i, url in enumerate(urls):
-                        text += f"  {i}. {url}\n"
-                    text += "\n"
-        else:
-            urls = load_urls(user_id)
-            if not urls:
-                text = "📭 No URLs stored."
-            else:
-                text = "📋 Stored URLs:\n\n" + "\n".join(f"{i}. {url}" for i, url in enumerate(urls))
+        elif data == "clear":
+            await query.edit_message_text(
+                "⚠️ Are you sure you want to delete ALL your URLs?\n"
+                "This action cannot be undone.",
+                reply_markup=clear_confirmation_keyboard(),
+            )
+            return
+    except Exception as e:
+        logger.error(f"Menu callback error: {e}")
+
+async def remove_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        query = update.callback_query
+        await query.answer()
+        data = query.data
+        user_id = update.effective_user.id
         
-        query.edit_message_text(
-            text,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
-        )
-        return
+        if data.startswith("remove_"):
+            idx = int(data.split("_")[1])
+            urls = load_urls(user_id)
+            if 0 <= idx < len(urls):
+                removed = urls.pop(idx)
+                save_urls(user_id, urls)
+                await query.edit_message_text(
+                    f"✅ Removed: {removed}",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
+                )
+            else:
+                await query.edit_message_text(
+                    "❌ Index out of range.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
+                )
+    except Exception as e:
+        logger.error(f"Remove callback error: {e}")
 
-    elif data == "clear":
-        query.edit_message_text(
-            "⚠️ Are you sure you want to delete ALL your URLs?\n"
-            "This action cannot be undone.",
-            reply_markup=clear_confirmation_keyboard(),
-        )
-        return
-
-def remove_callback(update, context):
-    query = update.callback_query
-    query.answer()
-    data = query.data
-    user_id = update.effective_user.id
-    
-    if data.startswith("remove_"):
-        idx = int(data.split("_")[1])
-        urls = load_urls(user_id)
-        if 0 <= idx < len(urls):
-            removed = urls.pop(idx)
-            save_urls(user_id, urls)
-            query.edit_message_text(
-                f"✅ Removed: {removed}",
+async def clear_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        query = update.callback_query
+        await query.answer()
+        data = query.data
+        user_id = update.effective_user.id
+        
+        if data == "clear_yes":
+            save_urls(user_id, [])
+            await query.edit_message_text(
+                "🗑 All your URLs have been cleared.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
+            )
+        elif data == "clear_no":
+            await query.edit_message_text(
+                "Action cancelled.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
+            )
+    except Exception as e:
+        logger.error(f"Clear callback error: {e}")
+
+async def add_url_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        user_id = update.effective_user.id
+        url = update.message.text.strip()
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        
+        urls = load_urls(user_id)
+        if url in urls:
+            await update.message.reply_text(
+                "⚠️ URL already exists.\n\n"
+                "Press /start to return to the menu."
             )
         else:
-            query.edit_message_text(
-                "❌ Index out of range.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
+            urls.append(url)
+            save_urls(user_id, urls)
+            await update.message.reply_text(
+                f"✅ Added: {url}\n\n"
+                "Press /start to return to the menu.",
             )
+        return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Add URL error: {e}")
+        return ConversationHandler.END
 
-def clear_callback(update, context):
-    query = update.callback_query
-    query.answer()
-    data = query.data
-    user_id = update.effective_user.id
-    
-    if data == "clear_yes":
-        save_urls(user_id, [])
-        query.edit_message_text(
-            "🗑 All your URLs have been cleared.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
-        )
-    elif data == "clear_no":
-        query.edit_message_text(
-            "Action cancelled.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
-        )
-
-def add_url_message(update, context):
-    user_id = update.effective_user.id
-    url = update.message.text.strip()
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-    
-    urls = load_urls(user_id)
-    if url in urls:
-        update.message.reply_text(
-            "⚠️ URL already exists.\n\n"
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        await update.message.reply_text(
+            "❌ Operation cancelled.\n\n"
             "Press /start to return to the menu."
         )
-    else:
-        urls.append(url)
-        save_urls(user_id, urls)
-        update.message.reply_text(
-            f"✅ Added: {url}\n\n"
-            "Press /start to return to the menu.",
+        return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Cancel error: {e}")
+        return ConversationHandler.END
+
+async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        await update.message.reply_text(
+            "❓ I don't understand that.\n"
+            "Please use the buttons or type /start."
         )
-    return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Fallback error: {e}")
 
-def cancel(update, context):
-    update.message.reply_text(
-        "❌ Operation cancelled.\n\n"
-        "Press /start to return to the menu."
-    )
-    return ConversationHandler.END
-
-def fallback(update, context):
-    update.message.reply_text(
-        "❓ I don't understand that.\n"
-        "Please use the buttons or type /start."
-    )
-
-def error_handler(update, context):
-    logger.error(f"Update {update} caused error {context.error}")
-
-def scheduler_loop():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+async def scheduler_loop():
     while True:
-        loop.run_until_complete(asyncio.sleep(PING_INTERVAL))
-        loop.run_until_complete(ping_all())
+        try:
+            await asyncio.sleep(PING_INTERVAL)
+            await ping_all()
+        except Exception as e:
+            logger.error(f"Scheduler error: {e}")
+            await asyncio.sleep(5)
+
+async def bot_main():
+    try:
+        telegram_app = Application.builder().token(TOKEN).build()
+
+        conv_handler = ConversationHandler(
+            entry_points=[CallbackQueryHandler(menu_callback, pattern="^add$")],
+            states={
+                WAITING_FOR_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_url_message)],
+            },
+            fallbacks=[CommandHandler("cancel", cancel)],
+        )
+        telegram_app.add_handler(conv_handler)
+
+        telegram_app.add_handler(CallbackQueryHandler(menu_callback, pattern="^(menu|list|clear)$"))
+        telegram_app.add_handler(CallbackQueryHandler(menu_callback, pattern="^remove$"))
+        telegram_app.add_handler(CallbackQueryHandler(remove_callback, pattern="^remove_"))
+        telegram_app.add_handler(CallbackQueryHandler(clear_callback, pattern="^clear_(yes|no)$"))
+
+        telegram_app.add_handler(CommandHandler("start", start))
+        telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
+
+        loop = asyncio.get_event_loop()
+        loop.create_task(scheduler_loop())
+        
+        await telegram_app.initialize()
+        await telegram_app.start()
+        await telegram_app.updater.start_polling()
+        
+        try:
+            await asyncio.Event().wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            await telegram_app.updater.stop()
+            await telegram_app.stop()
+            await telegram_app.shutdown()
+    except Exception as e:
+        logger.error(f"Bot main error: {e}")
+
+def run_flask():
+    try:
+        port = int(os.environ.get("PORT", 5000))
+        flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    except Exception as e:
+        logger.error(f"Flask error: {e}")
 
 def main():
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(menu_callback, pattern="^add$")],
-        states={
-            WAITING_FOR_URL: [MessageHandler(Filters.text & ~Filters.command, add_url_message)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-    dp.add_handler(conv_handler)
-
-    dp.add_handler(CallbackQueryHandler(menu_callback, pattern="^(menu|list|clear)$"))
-    dp.add_handler(CallbackQueryHandler(menu_callback, pattern="^remove$"))
-    dp.add_handler(CallbackQueryHandler(remove_callback, pattern="^remove_"))
-    dp.add_handler(CallbackQueryHandler(clear_callback, pattern="^clear_(yes|no)$"))
-
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, fallback))
-    dp.add_error_handler(error_handler)
-
-    threading.Thread(target=scheduler_loop, daemon=True).start()
-
-    updater.start_polling()
-    updater.idle()
+    try:
+        flask_thread = threading.Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        
+        try:
+            asyncio.run(bot_main())
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(bot_main())
+    except Exception as e:
+        logger.error(f"Main error: {e}")
 
 if __name__ == "__main__":
     main()
