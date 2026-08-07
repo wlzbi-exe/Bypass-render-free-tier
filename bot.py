@@ -4,38 +4,40 @@ import asyncio
 import random
 import logging
 import threading
+import signal
+import sys
 from datetime import datetime
-from flask import Flask, jsonify
-from aiohttp import ClientSession, ClientTimeout, TCPConnector
+from typing import Dict, List, Optional, Tuple
+from contextlib import suppress
+from flask import Flask
+from aiohttp import ClientSession, ClientTimeout, TCPConnector, ClientError
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler, ContextTypes
+from telegram.error import TimedOut, NetworkError, RetryAfter, Forbidden, BadRequest
 from dotenv import load_dotenv
 
 load_dotenv()
 
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
-    raise ValueError("No BOT_TOKEN found in environment variables")
+    raise ValueError("BOT_TOKEN environment variable is required")
 
 PING_INTERVAL = 10
 DATA_FILE = "urls.json"
 CREDIT = "— @rejerks | WLZBI"
 ADMIN_ID = 7282835498
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return jsonify({
-        "bot": "WLZBI Render Free Tier Bypass Bot",
-        "status": "running",
-        "credit": CREDIT,
-        "ping_interval": f"{PING_INTERVAL} seconds",
-        "version": "latest"
-    })
+    return " IM WLZBI'S RENDER FREE TIER BYPASS ROBOT "
 
 def load_urls(user_id=None):
     try:
@@ -89,13 +91,24 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
 ]
 
-async def ping_url(session, url):
+async def ping_url(session, url, retry_count=0):
     try:
         params = {"_t": random.randint(100000, 999999)} if random.choice([True, False]) else {}
         headers = {"User-Agent": random.choice(USER_AGENTS)}
-        async with session.get(url, params=params, headers=headers, timeout=10) as resp:
+        timeout = ClientTimeout(total=10)
+        async with session.get(url, params=params, headers=headers, timeout=timeout) as resp:
+            if resp.status == 502 and retry_count < 2:
+                logger.warning(f"Received 502 for {url}, waiting 50 seconds then retrying")
+                await asyncio.sleep(50)
+                return await ping_url(session, url, retry_count + 1)
             logger.info(f"Pinged {url} -> {resp.status}")
             return url, resp.status
+    except asyncio.TimeoutError:
+        logger.error(f"Timeout for {url}")
+        return url, None
+    except ClientError as e:
+        logger.error(f"Client error for {url}: {e}")
+        return url, None
     except Exception as e:
         logger.error(f"Failed to ping {url}: {e}")
         return url, None
@@ -158,7 +171,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['user_id'] = user_id
         await update.message.reply_text(
             f"🤖 WLZBI Render Free Tier Bypass Bot\n\n"
-            f"Keep your Render free‑tier services alive by automatically pinging your URLs every {PING_INTERVAL} seconds.\n"
+            f"Keep your Render free-tier services alive by automatically pinging your URLs every {PING_INTERVAL} seconds.\n"
             f"Use the buttons below to manage your list.\n\n"
             f"{CREDIT}",
             reply_markup=main_menu_keyboard(),
@@ -176,7 +189,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data == "menu":
             await query.edit_message_text(
                 f"🤖 WLZBI Render Free Tier Bypass Bot\n\n"
-                f"Keep your Render free‑tier services alive by automatically pinging your URLs every {PING_INTERVAL} seconds.\n"
+                f"Keep your Render free-tier services alive by automatically pinging your URLs every {PING_INTERVAL} seconds.\n"
                 f"Use the buttons below to manage your list.\n\n"
                 f"{CREDIT}",
                 reply_markup=main_menu_keyboard(),
@@ -238,6 +251,11 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=clear_confirmation_keyboard(),
             )
             return
+    except BadRequest as e:
+        if "query is too old" in str(e).lower():
+            logger.warning(f"Query too old: {e}")
+        else:
+            logger.error(f"Menu callback bad request: {e}")
     except Exception as e:
         logger.error(f"Menu callback error: {e}")
 
@@ -263,6 +281,8 @@ async def remove_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "❌ Index out of range.",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
                 )
+    except BadRequest as e:
+        logger.warning(f"Remove callback bad request: {e}")
     except Exception as e:
         logger.error(f"Remove callback error: {e}")
 
@@ -284,6 +304,8 @@ async def clear_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Action cancelled.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
             )
+    except BadRequest as e:
+        logger.warning(f"Clear callback bad request: {e}")
     except Exception as e:
         logger.error(f"Clear callback error: {e}")
 
