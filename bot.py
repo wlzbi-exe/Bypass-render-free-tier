@@ -6,15 +6,7 @@ import logging
 from datetime import datetime
 from aiohttp import ClientSession, ClientTimeout
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    filters,
-    ConversationHandler,
-    ContextTypes,
-)
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ConversationHandler, ContextTypes
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,8 +44,11 @@ def save_urls(user_id, urls):
     
     all_data[str(user_id)] = urls
     
-    with open(DATA_FILE, "w") as f:
-        json.dump(all_data, f)
+    try:
+        with open(DATA_FILE, "w") as f:
+            json.dump(all_data, f)
+    except Exception as e:
+        logger.error(f"Failed to save URLs: {e}")
 
 def get_all_urls():
     try:
@@ -129,7 +124,7 @@ async def ping_url(url):
         logger.error(f"Failed to ping {url}: {e}")
         return url, None
 
-async def ping_all(context: ContextTypes.DEFAULT_TYPE = None):
+async def ping_all():
     all_urls = get_all_urls()
     if not all_urls:
         return []
@@ -168,7 +163,8 @@ def build_remove_keyboard(urls):
 def clear_confirmation_keyboard():
     keyboard = [
         [InlineKeyboardButton("✅ Yes, clear all", callback_data="clear_yes")],
-        [InlineKeyboardButton("❌ No, cancel", callback_data="menu")],
+        [InlineKeyboardButton("❌ No, cancel", callback_data="clear_no")],
+        [InlineKeyboardButton("🔙 Back to menu", callback_data="menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -191,40 +187,40 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = update.effective_user.id
 
-    if data == "menu":  
-        await query.edit_message_text(  
-            f"🤖 URL Pinger Bot\n\n"  
-            f"Keep your Render free‑tier services alive by automatically pinging your URLs every {PING_INTERVAL} seconds.\n"  
-            f"Use the buttons below to manage your list.\n\n"  
-            f"{CREDIT}",  
-            reply_markup=main_menu_keyboard(),  
-        )  
-        return  
+    if data == "menu":
+        await query.edit_message_text(
+            f"🤖 URL Pinger Bot\n\n"
+            f"Keep your Render free‑tier services alive by automatically pinging your URLs every {PING_INTERVAL} seconds.\n"
+            f"Use the buttons below to manage your list.\n\n"
+            f"{CREDIT}",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
 
-    elif data == "add":  
-        await query.edit_message_text(  
-            "📝 Please send me the URL you want to add.\n"  
-            "You can include http:// or https:// – I'll add it if missing.\n\n"  
-            "Type /cancel to abort.",  
-        )  
-        return WAITING_FOR_URL  
+    elif data == "add":
+        await query.edit_message_text(
+            "📝 Please send me the URL you want to add.\n"
+            "You can include http:// or https:// – I'll add it if missing.\n\n"
+            "Type /cancel to abort.",
+        )
+        return WAITING_FOR_URL
 
-    elif data == "remove":  
-        urls = load_urls(user_id)  
-        if not urls:  
-            await query.edit_message_text(  
-                "📭 No URLs stored.\n\n"  
-                "Press Back to return.",  
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),  
-            )  
-            return  
-        await query.edit_message_text(  
-            "🗑 Choose a URL to remove:",  
-            reply_markup=build_remove_keyboard(urls),  
-        )  
-        return  
+    elif data == "remove":
+        urls = load_urls(user_id)
+        if not urls:
+            await query.edit_message_text(
+                "📭 No URLs stored.\n\n"
+                "Press Back to return.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
+            )
+            return
+        await query.edit_message_text(
+            "🗑 Choose a URL to remove:",
+            reply_markup=build_remove_keyboard(urls),
+        )
+        return
 
-    elif data == "list":  
+    elif data == "list":
         if user_id == ADMIN_ID:
             all_urls = get_all_urls()
             if not all_urls:
@@ -237,24 +233,24 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         text += f"  {i}. {url}\n"
                     text += "\n"
         else:
-            urls = load_urls(user_id)  
-            if not urls:  
-                text = "📭 No URLs stored."  
-            else:  
-                text = "📋 Stored URLs:\n\n" + "\n".join(f"{i}. {url}" for i, url in enumerate(urls))  
+            urls = load_urls(user_id)
+            if not urls:
+                text = "📭 No URLs stored."
+            else:
+                text = "📋 Stored URLs:\n\n" + "\n".join(f"{i}. {url}" for i, url in enumerate(urls))
         
-        await query.edit_message_text(  
-            text,  
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),  
-        )  
-        return  
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="menu")]]),
+        )
+        return
 
-    elif data == "clear":  
-        await query.edit_message_text(  
-            "⚠️ Are you sure you want to delete ALL your URLs?\n"  
-            "This action cannot be undone.",  
-            reply_markup=clear_confirmation_keyboard(),  
-        )  
+    elif data == "clear":
+        await query.edit_message_text(
+            "⚠️ Are you sure you want to delete ALL your URLs?\n"
+            "This action cannot be undone.",
+            reply_markup=clear_confirmation_keyboard(),
+        )
         return
 
 async def remove_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -331,7 +327,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Please use the buttons or type /start."
     )
 
-async def scheduler():
+async def scheduler_loop():
     while True:
         await asyncio.sleep(PING_INTERVAL)
         await ping_all()
@@ -348,16 +344,17 @@ def main():
     )
     app.add_handler(conv_handler)
 
-    app.add_handler(CallbackQueryHandler(menu_callback, pattern="^(menu|list|clear|remove)$"))
+    app.add_handler(CallbackQueryHandler(menu_callback, pattern="^(menu|list|clear)$"))
+    app.add_handler(CallbackQueryHandler(menu_callback, pattern="^remove$"))
     app.add_handler(CallbackQueryHandler(remove_callback, pattern="^remove_"))
     app.add_handler(CallbackQueryHandler(clear_callback, pattern="^clear_(yes|no)$"))
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.create_task(scheduler())
+    loop = asyncio.get_event_loop()
+    loop.create_task(scheduler_loop())
+    
     app.run_polling()
 
 if __name__ == "__main__":
