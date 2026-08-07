@@ -345,7 +345,6 @@ def main():
             WAITING_FOR_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_url_message)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-        per_message=False,
     )
     app.add_handler(conv_handler)
 
@@ -356,8 +355,9 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
 
-    asyncio.create_task(scheduler())
-
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.create_task(scheduler())
     app.run_polling()
 
 if __name__ == "__main__":
