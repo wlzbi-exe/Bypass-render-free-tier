@@ -339,24 +339,24 @@ async def scheduler():
 def main():
     app = Application.builder().token(TOKEN).build()
 
-    conv_handler = ConversationHandler(  
-        entry_points=[CallbackQueryHandler(menu_callback, pattern="^add$")],  
-        states={  
-            WAITING_FOR_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_url_message)],  
-        },  
-        fallbacks=[CommandHandler("cancel", cancel)],  
-    )  
-    app.add_handler(conv_handler)  
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(menu_callback, pattern="^add$")],
+        states={
+            WAITING_FOR_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_url_message)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        per_message=False,
+    )
+    app.add_handler(conv_handler)
 
-    app.add_handler(CallbackQueryHandler(menu_callback, pattern="^(menu|list|clear|remove)$"))  
-    app.add_handler(CallbackQueryHandler(remove_callback, pattern="^remove_"))  
-    app.add_handler(CallbackQueryHandler(clear_callback, pattern="^clear_(yes|no)$"))  
+    app.add_handler(CallbackQueryHandler(menu_callback, pattern="^(menu|list|clear|remove)$"))
+    app.add_handler(CallbackQueryHandler(remove_callback, pattern="^remove_"))
+    app.add_handler(CallbackQueryHandler(clear_callback, pattern="^clear_(yes|no)$"))
 
-    app.add_handler(CommandHandler("start", start))  
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))  
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
 
-    loop = asyncio.get_event_loop()  
-    loop.create_task(scheduler())  
+    asyncio.create_task(scheduler())
 
     app.run_polling()
 
